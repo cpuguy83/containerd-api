@@ -4,10 +4,22 @@ type State struct {
 	Containers []Container `json:"containers"`
 }
 
+type Status string
+
+const (
+	Paused  Status = "paused"
+	Running Status = "running"
+)
+
+type ContainerState struct {
+	Status Status `json:"status,omitempty"`
+}
+
 type Container struct {
-	ID         string    `json:"id,omitempty"`
-	BundlePath string    `json:"bundlePath,omitempty"`
-	Processes  []Process `json:"processes,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	BundlePath string          `json:"bundlePath,omitempty"`
+	Processes  []Process       `json:"processes,omitempty"`
+	State      *ContainerState `json:"state,omitempty"`
 }
 
 type User struct {

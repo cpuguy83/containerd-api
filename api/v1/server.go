@@ -7,7 +7,7 @@ import (
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/crosbymichael/containerd"
+	"github.com/docker/containerd"
 	"github.com/gorilla/mux"
 	"github.com/opencontainers/specs"
 )
@@ -18,9 +18,14 @@ func NewServer(supervisor *containerd.Supervisor) http.Handler {
 		supervisor: supervisor,
 		r:          r,
 	}
+	// TODO: add container stats
+	// TODO: add container checkpoint
+	// TODO: add container restore
+	// TODO: set prctl child subreaper
 	r.HandleFunc("/containers/{id:.*}/process/{pid:.*}", s.signalPid).Methods("POST")
 	r.HandleFunc("/containers/{id:.*}/process", s.addProcess).Methods("PUT")
 	r.HandleFunc("/containers/{id:.*}", s.createContainer).Methods("POST")
+	r.HandleFunc("/containers/{id:.*}", s.updateContainer).Methods("PATCH")
 	r.HandleFunc("/event", s.event).Methods("POST")
 	r.HandleFunc("/containers", s.containers).Methods("GET")
 	return s
@@ -31,8 +36,28 @@ type server struct {
 	supervisor *containerd.Supervisor
 }
 
+// TODO: implement correct shutdown
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.r.ServeHTTP(w, r)
+}
+
+func (s *server) updateContainer(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var state ContainerState
+	if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	e := containerd.NewEvent(containerd.UpdateContainerEventType)
+	e.ID = id
+	e.State = &containerd.State{
+		Status: containerd.Status(string(state.Status)),
+	}
+	s.supervisor.SendEvent(e)
+	if err := <-e.Err; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *server) event(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +176,9 @@ func writeContainers(w http.ResponseWriter, e *containerd.Event) error {
 			ID:         c.ID(),
 			BundlePath: c.Path(),
 			Processes:  pids,
+			State: &ContainerState{
+				Status: Status(c.State().Status),
+			},
 		})
 	}
 	return json.NewEncoder(w).Encode(&state)
